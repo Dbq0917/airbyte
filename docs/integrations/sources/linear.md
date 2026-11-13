@@ -73,7 +73,7 @@ The Linear source connector supports the following sync modes:
 - [Incremental - Append](https://docs.airbyte.com/platform/using-airbyte/core-concepts/sync-modes/incremental-append)
 - [Incremental - Append + Deduped](https://docs.airbyte.com/platform/using-airbyte/core-concepts/sync-modes/incremental-append-deduped)
 
-Streams that support incremental sync use the `updatedAt` field as the cursor. The Start Date you set when configuring the connector is the lower bound for the first incremental sync. Subsequent syncs use the most recent `updatedAt` value from the previous sync as the new lower bound.
+Streams that support incremental sync use the `updatedAt` field as the cursor. The Start Date you set when configuring the connector is the lower bound for the first incremental sync. Subsequent syncs use the most recent `updatedAt` value from the previous sync as the new lower bound. Linear returns `first`/`after` pages newest-first, while a timestamp cursor is only safe when records arrive oldest-first, so the connector pages backward with `last`/`before`. A failed sync therefore cannot advance the cursor past an older page it never read.
 
 That lower bound is inclusive, so a record whose `updatedAt` matches the stored cursor exactly is read again on the next sync. Overlap is also wider after a failed sync. Each stream gets its own cursor, and the connector advances a stream's cursor only once that stream finishes, so a stream interrupted by a failure re-reads everything updated since its own last successful run. Streams that finished before the failure keep their new cursor and aren't affected. In **Incremental - Append + Deduped** mode the destination collapses these repeats. In **Incremental - Append** mode they land as extra rows, so deduplicate on the primary key downstream if that matters to you.
 
@@ -227,6 +227,7 @@ If you use Airbyte Cloud and your organization restricts access to specific IPs,
 
 | Version | Date | Pull Request | Subject |
 | ------- | ---- | ------------ | ------- |
+| 1.0.4 | 2026-11-14 | | Read incremental pages oldest-first so a failed sync resumes without skipping records |
 | 1.0.3 | 2026-09-15 | [85560](https://github.com/airbytehq/airbyte/pull/85560) | Update dependencies |
 | 1.0.2 | 2026-09-10 | [85793](https://github.com/airbytehq/airbyte/pull/85793) | Promote to certified support level |
 | 1.0.1 | 2026-09-09 | [85789](https://github.com/airbytehq/airbyte/pull/85789) | Fix bug in config migration that prevented rotated refresh tokens from being persisted |

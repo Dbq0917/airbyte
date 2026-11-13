@@ -4,7 +4,7 @@
 """Unit tests for source-linear incremental sync support.
 
 These tests verify that the 12 eligible streams declare incremental sync and
-inject the correct GraphQL variables (`filter.updatedAt.gte`, `orderBy`, `after`)
+inject the correct GraphQL variables (`filter.updatedAt.gte`, `orderBy`, `before`)
 when combined with pagination and the `DatetimeBasedCursor`. See oncall issue
 https://github.com/airbytehq/oncall/issues/11998 for context.
 """
@@ -184,7 +184,11 @@ def _connection_response(
                 "data": {
                     field: {
                         "nodes": records,
-                        "pageInfo": {"hasNextPage": has_next_page, "endCursor": end_cursor},
+                        "pageInfo": {
+                            "hasNextPage": has_next_page,
+                            "hasPreviousPage": has_next_page,
+                            "endCursor": end_cursor,
+                        },
                     }
                 }
             }
@@ -480,15 +484,15 @@ def test_initial_request_body_has_updated_at_filter_and_order_by(
     assert variables["orderBy"] == "updatedAt"
     assert variables["filter"]["updatedAt"]["gte"].startswith("2024-01-01T00:00:00")
     # Initial request: no pagination cursor yet.
-    assert "after" not in variables
+    assert "before" not in variables
 
 
 @pytest.mark.parametrize("stream_name", INCREMENTAL_STREAMS)
-def test_paginated_request_body_includes_after_filter_and_order_by(
+def test_paginated_request_body_includes_before_filter_and_order_by(
     stream_name: str,
     streams_by_name: Mapping[str, Any],
 ) -> None:
-    """On subsequent pages, `after` must merge with `filter` and `orderBy` at the call site and under `variables`."""
+    """On subsequent pages, `before` must merge with `filter` and `orderBy` at the call site and under `variables`."""
     graphql_field = INCREMENTAL_STREAM_GRAPHQL_FIELDS[stream_name]
     body = _build_full_request_body(
         streams_by_name[stream_name],
@@ -496,14 +500,32 @@ def test_paginated_request_body_includes_after_filter_and_order_by(
     )
 
     call_site = _top_level_call_site(body["query"], graphql_field)
-    assert "after: $after" in call_site, f"{graphql_field} call site must pass after: $after, got: {call_site!r}"
+    assert "before: $before" in call_site, f"{graphql_field} call site must pass before: $before, got: {call_site!r}"
     assert "filter: $filter" in call_site, f"{graphql_field} call site must pass filter: $filter, got: {call_site!r}"
     assert "orderBy: $orderBy" in call_site, f"{graphql_field} call site must pass orderBy: $orderBy, got: {call_site!r}"
 
     variables = body["variables"]
-    assert variables["after"] == "PAGE_CURSOR_TOKEN"
+    assert variables["before"] == "PAGE_CURSOR_TOKEN"
     assert variables["orderBy"] == "updatedAt"
     assert variables["filter"]["updatedAt"]["gte"].startswith("2024-01-01T00:00:00")
+
+
+@pytest.mark.parametrize("stream_name", INCREMENTAL_STREAMS)
+def test_incremental_pagination_walks_oldest_to_newest(
+    stream_name: str,
+    streams_by_name: Mapping[str, Any],
+) -> None:
+    """Linear's `first`/`after` paging returns newest-first, which is unsafe for cursor checkpointing."""
+    graphql_field = INCREMENTAL_STREAM_GRAPHQL_FIELDS[stream_name]
+    body = _build_full_request_body(streams_by_name[stream_name], next_page_token=None)
+
+    call_site = _top_level_call_site(body["query"], graphql_field)
+    assert "before: $before" in call_site
+    assert "last:" in call_site
+    assert "after: $after" not in call_site
+    assert "first:" not in call_site
+    assert "hasPreviousPage" in body["query"]
+    assert "hasNextPage" not in body["query"]
 
 
 def test_start_date_override_flows_into_filter(tmp_path: Path) -> None:

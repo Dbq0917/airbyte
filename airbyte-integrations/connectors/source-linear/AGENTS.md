@@ -16,6 +16,8 @@ The consent URL pins `actor=app`, which provides a rate-limit uplift but require
 
 The Linear GraphQL API supports `updatedAt` filtering via `filter: { updatedAt: { gte: ... } }` on most entity types, which the connector uses extensively — 14 of the 20 streams are incremental (12 from PR airbytehq/airbyte#76429; `initiatives` and `project_updates` from PR airbytehq/airbyte#85056). The remaining 6 streams are full-refresh or child streams without a usable `updatedAt` filter.
 
+Incremental queries page backward with `last`/`before` and stop on `hasPreviousPage: false`. Linear's `first`/`after` paging returns newest-first, but `DatetimeBasedCursor` checkpointing requires oldest-first records; paginating forward can advance the cursor past an older page that a failed sync never read.
+
 | Stream | Volume Tier | Relationship | Cursor Field | API Incremental Support | Current Status | Notes |
 |---|---|---|---|---|---|---|
 | attachments | medium | top-level parent | updatedAt | updated_at | incremental | `filter.updatedAt.gte` via `incremental_sync_updated_at` |
